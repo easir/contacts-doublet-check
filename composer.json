@@ -1,0 +1,22 @@
+{
+  "name": "easir/contacts-doublet-check",
+  "version": "1.0",
+  "type": "library",
+  "description": "Doublet (double entry search) check of E2C data with EASI'R Now Contacts",
+  "autoload": {
+    "psr-4": {
+      "Easir\\ContactsDoubletCheck\\": "src/"
+    }
+  },
+  "require": {
+    "php": "^7.3",
+    "guzzlehttp/guzzle": "^7.0.1",
+    "nesbot/carbon": "^2.40",
+    "ext-json": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.0",
+    "vimeo/psalm": "^3.8",
+    "fzaninotto/faker": "^1.9.1"
+  }
+}
