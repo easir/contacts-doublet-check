@@ -6,149 +6,86 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
-use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Easir\ContactsDoubletCheck\Exception\ValidationException;
-use Faker\Factory;
 
 class ContactsDoubletCheckTest extends TestCase
 {
-    /** @var Factory */
-    private $faker;
-    public function setUp() : void
-    {
-        parent::setUp();
-
-        $this->faker = Factory::create();
-    }
-
     /**
+     * @dataProvider generateWrongPayload
      * @throws ValidationException
      * @throws GuzzleException
      */
-    public function testValidationException(): void
-    {
+    public function testValidationException(
+        string $firstName,
+        string $lastName,
+        ?string $email,
+        ?string $mobile,
+        ?string $landline
+    ): void {
         $this->expectException(ValidationException::class);
 
-        $container = [];
-        $history = Middleware::history($container);
-
-        $guzzleMock = new MockHandler([]);
-        $stack = HandlerStack::create($guzzleMock);
-        $stack->push($history);
-
-        $guzzleClient = new Client(['handler' => $stack]);
-        $contactsDoubletCheck = new ContactsDoubletCheck($guzzleClient);
-        $contactsDoubletCheck->find('FirstName', 'LastName', null, null, null);
-        $contactsDoubletCheck->find('FirstName', '', 'email@test.com', null, null);
-        $contactsDoubletCheck->find('FirstName', 'LastName', '', '12312312', null);
+        $contactsDoubletCheck = new ContactsDoubletCheck(new Client());
+        $contactsDoubletCheck->find($firstName, $lastName, $email, $mobile, $landline);
     }
 
     /**
-     * @throws Exception
+     * @dataProvider generateData
+     * @param array|mixed[] $payload
      */
-    public function testNoOneFound(): void
+    public function testDoubletCheck(array $payload): void
     {
-        [$contactsDoubletCheck, $newestContactDate, $parameters] = $this->prepareDependencies(0, 0, false);
-        $contact = $contactsDoubletCheck->find(
-            $parameters['firstName'],
-            $parameters['lastName'],
-            $parameters['email'],
-            $parameters['mobile'],
-            $parameters['landline']
-        );
+        [$contact, $newestDate] = $payload;
 
-        $this->assertNull($contact);
-        $this->assertNull($newestContactDate);
-    }
+        if ($contact === null) {
+            $this->assertNull($newestDate);
+            return;
+        }
 
-    /**
-     * @throws Exception
-     */
-    public function testOneFound(): void
-    {
-        [$contactsDoubletCheck, $newestContactDate, $parameters] = $this->prepareDependencies(1, 0, false);
-        $this->checkResults(
-            $parameters,
-            $contactsDoubletCheck->find(
-                $parameters['firstName'],
-                $parameters['lastName'],
-                $parameters['email'],
-                $parameters['mobile'],
-                $parameters['landline']
-            ),
-            $newestContactDate
-        );
-    }
-
-    /**
-     * @throws Exception
-     */
-    public function testMoreThanOneFoundNoCases(): void
-    {
-        [$contactsDoubletCheck, $newestContactDate, $parameters] = $this->prepareDependencies(3, 2, false);
-        $this->checkResults(
-            $parameters,
-            $contactsDoubletCheck->find(
-                $parameters['firstName'],
-                $parameters['lastName'],
-                $parameters['email'],
-                $parameters['mobile'],
-                $parameters['landline']
-            ),
-            $newestContactDate
-        );
-    }
-
-    /**
-     * @throws Exception
-     */
-    public function testMoreThanOneFoundWithCases(): void
-    {
-        [$contactsDoubletCheck, $newestContactDate, $parameters] = $this->prepareDependencies(3, 2, true);
-        $this->checkResults(
-            $parameters,
-            $contactsDoubletCheck->find(
-                $parameters['firstName'],
-                $parameters['lastName'],
-                $parameters['email'],
-                $parameters['mobile'],
-                $parameters['landline']
-            ),
-            $newestContactDate
-        );
+        $this->assertSame((string) $newestDate, $contact['updated_at']);
     }
 
     /**
      * @return array|mixed[]
-     * @throws Exception
+     * @throws Exception|GuzzleException
+     */
+    public function generateData(): array
+    {
+        return [
+            'No result found' => [
+                $this->prepareDependencies(0, 0, false),
+            ],
+            'One result found' => [
+                $this->prepareDependencies(1, 0, false),
+            ],
+            'More than one result found, no Cases' => [
+                $this->prepareDependencies(3, 2, false),
+            ],
+            'More than one result found, with Cases' => [
+                $this->prepareDependencies(3, 2, true),
+            ],
+        ];
+    }
+
+    /**
+     * @return array|mixed[]
+     * @throws Exception|GuzzleException
      */
     private function prepareDependencies(int $b2cContacts, int $b2bContacts, bool $withCases): array
     {
-        $container = [];
-        $history = Middleware::history($container);
-
-        $parameters = [
-            'firstName' => $this->faker->firstName,
-            'lastName' => $this->faker->lastName,
-            'email' => $this->faker->email,
-            'mobile' => $this->faker->phoneNumber,
-            'landline' => $this->faker->phoneNumber,
-        ];
-
         [
             $newestDateB2C,
             $realB2CContactDate,
             $mockedB2CResponse,
             $mockedB2CCases
-        ] = $this->populateContacts(true, $b2cContacts, $parameters, $withCases);
+        ] = $this->populateContacts(true, $b2cContacts, $withCases);
         [
             $newestDateB2B,
             $realB2BContactDate,
             $mockedB2BResponse,
             $mockedB2BCases
-        ] = $this->populateContacts(false, $b2bContacts, $parameters, $withCases);
+        ] = $this->populateContacts(false, $b2bContacts, $withCases);
 
         if ($newestDateB2C === null) {
             $realContactDate = $realB2BContactDate;
@@ -170,17 +107,25 @@ class ContactsDoubletCheckTest extends TestCase
         ));
 
         $stack = HandlerStack::create($guzzleMock);
-        $stack->push($history);
-
         $guzzleClient = new Client(['handler' => $stack]);
-        return [new ContactsDoubletCheck($guzzleClient), $realContactDate, $parameters];
+
+        $contactsDoubletCheck = new ContactsDoubletCheck($guzzleClient);
+        $contact = $contactsDoubletCheck->find(
+            'Rachael',
+            'Armstrong',
+            'rachael@test.com',
+            '932-807-0673',
+            null
+        );
+
+        return [$contact, $realContactDate];
     }
 
     /**
      * @return array|mixed[]
      * @throws Exception
      */
-    private function populateContacts(bool $b2c, int $amount, array $parameters, bool $withCases): array
+    private function populateContacts(bool $b2c, int $amount, bool $withCases): array
     {
         $newestDate = null;
         $payload = [];
@@ -195,15 +140,7 @@ class ContactsDoubletCheckTest extends TestCase
                 }
             }
 
-            $contact = $this->generateContact(
-                $b2c,
-                $parameters['firstName'],
-                $parameters['lastName'],
-                $parameters['email'],
-                $parameters['mobile'],
-                $parameters['landline'],
-                (string) $updatedAt,
-            );
+            $contact = $this->generateContact($b2c, (string) $updatedAt,);
 
             $payload[] = $contact;
 
@@ -227,42 +164,36 @@ class ContactsDoubletCheckTest extends TestCase
     /**
      * @return array|string[]
      */
-    private function generateContact(
-        bool $b2c,
-        string $firstName,
-        string $lastName,
-        ?string $email,
-        ?string $mobile,
-        ?string $landline,
-        string $updatedAt
-    ): array {
+    private function generateContact(bool $b2c, string $updatedAt): array
+    {
+
         return [
-            'id' => $this->faker->uuid,
+            'id' => 'c21aff80-af63-3385-a3eb-867b8a7cf5bd',
             'b2c' => $b2c,
             'account' => [
-                'id' => $this->faker->uuid,
-                'name' => $this->faker->name,
+                'id' => 'a0b90d42-9a02-3199-ade3-20586b7113c4',
+                'name' => 'Albina Aufderhar IV',
             ],
             'fixed_fields' => [
                 [
                     'name' => 'first_name',
-                    'value' => $firstName,
+                    'value' => 'Rachael',
                 ],
                 [
                     'name' => 'last_name',
-                    'value' => $lastName,
+                    'value' => 'Armstrong',
                 ],
                 [
                     'name' => 'email',
-                    'value' => $email,
+                    'value' => 'rachael@test.com',
                 ],
                 [
                     'name' => 'mobile_phone_number',
-                    'value' => $mobile,
+                    'value' => '932-807-0673',
                 ],
                 [
                     'name' => 'landline_phone_number',
-                    'value' => $landline,
+                    'value' => '+1-372-862-1467',
                 ],
             ],
             'updated_at' => $updatedAt,
@@ -298,7 +229,7 @@ class ContactsDoubletCheckTest extends TestCase
     private function generateCase(string $updatedAt, array $contact): array
     {
         return [
-            'id' => $this->faker->uuid,
+            'id' => '8148861b-b991-31c6-afd2-a84a2e8741ee',
             'updated_at' => $updatedAt,
             'account' => [
                 'id' => $contact['account']['id'],
@@ -327,16 +258,14 @@ class ContactsDoubletCheckTest extends TestCase
     }
 
     /**
-     * @param array|string[] $parameters
-     * @param array|mixed[] $contact
+     * @return array|mixed[]
      */
-    public function checkResults(array $parameters, array $contact, Carbon $newestDate): void
-    {
-        $this->assertSame($parameters['firstName'], $contact['fixed_fields'][0]['value']);
-        $this->assertSame($parameters['lastName'], $contact['fixed_fields'][1]['value']);
-        $this->assertSame($parameters['email'], $contact['fixed_fields'][2]['value']);
-        $this->assertSame($parameters['mobile'], $contact['fixed_fields'][3]['value']);
-        $this->assertSame($parameters['landline'], $contact['fixed_fields'][4]['value']);
-        $this->assertSame((string) $newestDate, $contact['updated_at']);
+    public function generateWrongPayload(): array {
+        return [
+            ['FirstName', 'LastName', null, null, null],
+            ['FirstName', '', 'email@test.com', null, null],
+            ['', 'LastName', '', '12312312', null],
+            ['FirstName', 'LastName', '', '', ''],
+        ];
     }
 }
