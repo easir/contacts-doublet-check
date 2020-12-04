@@ -1,0 +1,22 @@
+codestyle:
+  language: php
+  initRunners:
+    - type: composer
+      image: composer:1.8.6
+      args:
+        - --prefer-dist
+        - --ignore-platform-reqs
+        - --no-ansi
+        - --no-progress
+        - --no-interaction
+  runners:
+    - type: phpcs
+      image: php:7.3-cli-alpine
+    - type: phplint
+      image: php:7.3-cli-alpine
+    - type: phpunit
+      image: php:7.3-cli-alpine
+    - type: psalm
+      image: php:7.3-cli-alpine
+      command:
+      - vendor/bin/psalm

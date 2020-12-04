@@ -10,13 +10,20 @@
   },
   "require": {
     "php": "^7.3",
+    "ext-json": "*",
     "guzzlehttp/guzzle": "^7.0.1",
-    "nesbot/carbon": "^2.40",
-    "ext-json": "*"
+    "nesbot/carbon": "^2.40"
   },
   "require-dev": {
+    "easir/coding-standard": "@dev",
     "phpunit/phpunit": "^9.0",
     "vimeo/psalm": "^3.8",
     "fzaninotto/faker": "^1.9.1"
-  }
+  },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/easir/coding-standard.git"
+    }
+  ]
 }
