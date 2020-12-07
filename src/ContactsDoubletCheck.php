@@ -13,16 +13,6 @@ class ContactsDoubletCheck
 {
     /** @var GuzzleClient */
     private $client;
-    /** @var string */
-    protected $firstName;
-    /** @var string */
-    protected $lastName;
-    /** @var string|null */
-    protected $email;
-    /** @var string|null */
-    protected $mobile;
-    /** @var string|null */
-    protected $landline;
 
     public function __construct(GuzzleClient $client)
     {
@@ -106,6 +96,7 @@ class ContactsDoubletCheck
         }
 
         ksort($contactsWithCases);
+
         return array_pop($contactsWithCases);
     }
 
@@ -125,15 +116,18 @@ class ContactsDoubletCheck
             if (empty($results['data'])) {
                 return null;
             }
+
             foreach ($results['data'] as $case) {
                 if (empty($newest)) {
                     $newest = Carbon::parse($case['updated_at']);
                 }
 
                 $checkDate = Carbon::parse($case['updated_at']);
-                if ($newest->lt($checkDate)) {
-                    $newest = $checkDate;
+                if (!$newest->lt($checkDate)) {
+                    continue;
                 }
+
+                $newest = $checkDate;
             }
         } while ($results['pagination']['urls']['next'] !== null);
 
@@ -142,7 +136,7 @@ class ContactsDoubletCheck
 
     /**
      * @param array|mixed[] $contacts
-     * @return array|mixed
+     * @return array|mixed[]
      */
     private function getNewestByUpdatedAt(array $contacts): array
     {
@@ -152,9 +146,11 @@ class ContactsDoubletCheck
                 $newest = $contact;
             }
 
-            if (Carbon::parse($newest['updated_at'])->lt(Carbon::parse($contact['updated_at']))) {
-                $newest = $contact;
+            if (!Carbon::parse($newest['updated_at'])->lt(Carbon::parse($contact['updated_at']))) {
+                continue;
             }
+
+            $newest = $contact;
         }
 
         return $newest;

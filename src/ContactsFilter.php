@@ -65,6 +65,7 @@ abstract class ContactsFilter
      */
     public function buildFilter(): array
     {
+        $filter = [];
         $filter[0] = [
             'field' => $this->getFieldName('firstName'),
             'operator' => 'ct',

@@ -28,7 +28,3 @@ $contact = $contactsDoubletCheck->find(
 ```
 
 The tool returns the Contact payload from Easi'r Now if found or null otherwise.
-
-### Installing
-
-Do we need to register this package for easy usage?
