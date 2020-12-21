@@ -2,10 +2,9 @@
 
 namespace Easir\ContactsDoubletCheck\ContactsFilter;
 
-use Easir\ContactsDoubletCheck\ContactsFilter;
 use Easir\ContactsDoubletCheck\GetFieldNames;
 
-class B2CContactsFilter extends ContactsFilter
+final class B2CContactsFilter extends ContactsFilter
 {
     use GetFieldNames;
 

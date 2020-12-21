@@ -5,11 +5,13 @@ namespace Easir\ContactsDoubletCheck;
 use Carbon\Carbon;
 use Easir\ContactsDoubletCheck\ContactsFilter\B2BContactsFilter;
 use Easir\ContactsDoubletCheck\ContactsFilter\B2CContactsFilter;
+use Easir\ContactsDoubletCheck\ContactsFilter\ContactsFilter;
 use Easir\ContactsDoubletCheck\Exception\ValidationException;
+use Generator;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Exception\GuzzleException;
 
-class ContactsDoubletCheck
+final class ContactsDoubletCheck
 {
     /** @var GuzzleClient */
     private $client;
@@ -52,33 +54,11 @@ class ContactsDoubletCheck
     }
 
     /**
-     * @return array|mixed[]
-     * @throws GuzzleException
-     */
-    protected function fetchContacts(ContactsFilter $filter): array
-    {
-        $contacts = [];
-        $numberPages = 0;
-        do {
-            $numberPages++;
-
-            $response = $this->client->post(sprintf('/contacts/filter?per_page=50&page=%d', $numberPages), [
-                'json' => $filter->buildFilter(),
-            ]);
-            $results = json_decode($response->getBody()->getContents(), true);
-
-            $contacts = array_merge($contacts, $results['data']);
-        } while ($results['pagination']['urls']['next'] !== null);
-
-        return $contacts;
-    }
-
-    /**
      * @param array|mixed[] $contacts
      * @return array|mixed[]|null
      * @throws GuzzleException
      */
-    public function getNewestByCase(array $contacts): ?array
+    private function getNewestByCase(array $contacts): ?array
     {
         $contactsWithCases = [];
         foreach ($contacts as $contact) {
@@ -103,35 +83,36 @@ class ContactsDoubletCheck
     /**
      * @throws GuzzleException
      */
-    public function getNewestDateByCase(string $accountId, string $contactId): ?Carbon
+    private function getNewestDateByCase(string $accountId, string $contactId): ?Carbon
     {
-        $newest = null;
-        $numberPages = 0;
-        do {
-            $numberPages++;
+        $newestDate = null;
 
-            $response = $this->client->get(sprintf('/accounts/%s/contacts/%s/cases?per_page=50&page=%d', $accountId, $contactId, $numberPages));
-            $results = json_decode($response->getBody()->getContents(), true);
+        $url = sprintf(
+            '/accounts/%s/contacts/%s/cases',
+            $accountId,
+            $contactId
+        );
+        foreach ($this->backendFetcherGet($url) as $case) {
+            $checkDate = Carbon::parse($case['updated_at']);
+            $newestDate = $checkDate->gt($newestDate) ? $checkDate : $newestDate;
+        }
 
-            if (empty($results['data'])) {
-                return null;
-            }
+        return $newestDate;
+    }
 
-            foreach ($results['data'] as $case) {
-                if (empty($newest)) {
-                    $newest = Carbon::parse($case['updated_at']);
-                }
+    /**
+     * @return array|mixed[]
+     * @throws GuzzleException
+     */
+    private function fetchContacts(ContactsFilter $filter): array
+    {
+        $contacts = [];
 
-                $checkDate = Carbon::parse($case['updated_at']);
-                if (!$newest->lt($checkDate)) {
-                    continue;
-                }
+        foreach ($this->backendFetcherPost('/contacts/filter', $filter->buildFilter()) as $contact) {
+            $contacts[] = $contact;
+        }
 
-                $newest = $checkDate;
-            }
-        } while ($results['pagination']['urls']['next'] !== null);
-
-        return $newest;
+        return $contacts;
     }
 
     /**
@@ -140,12 +121,9 @@ class ContactsDoubletCheck
      */
     private function getNewestByUpdatedAt(array $contacts): array
     {
-        $newest = [];
-        foreach ($contacts as $contact) {
-            if (empty($newest)) {
-                $newest = $contact;
-            }
+        $newest = current($contacts) ? current($contacts) : [];
 
+        foreach ($contacts as $contact) {
             if (!Carbon::parse($newest['updated_at'])->lt(Carbon::parse($contact['updated_at']))) {
                 continue;
             }
@@ -154,5 +132,45 @@ class ContactsDoubletCheck
         }
 
         return $newest;
+    }
+
+    /**
+     * @param array|mixed[] $payload
+     * @throws GuzzleException
+     */
+    private function backendFetcherGet(string $url): Generator
+    {
+        return $this->backendFetcher('GET', $url);
+    }
+
+    /**
+     * @param array|mixed[] $payload
+     * @throws GuzzleException
+     */
+    private function backendFetcherPost(string $url, array $payload): Generator
+    {
+        return $this->backendFetcher('POST', $url, $payload);
+    }
+
+    /**
+     * @param array|mixed[] $payload
+     * @throws GuzzleException
+     */
+    private function backendFetcher(string $method, string $url, array $payload = []): Generator
+    {
+        $page = 0;
+        do {
+            $page++;
+            $response = $this->client->request(
+                $method,
+                sprintf('%s?page=%d', $url, $page),
+                ['json' => $payload]
+            );
+            $result = json_decode($response->getBody()->getContents(), true);
+
+            foreach ((array) $result['data'] as $record) {
+                yield $record;
+            }
+        } while ($result['pagination']['urls']['next'] !== null);
     }
 }
