@@ -8,8 +8,13 @@
       "Easir\\ContactsDoubletCheck\\": "src/"
     }
   },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
   "require": {
-    "php": "^7.3",
+    "php": "^7.3 || 8.0",
     "ext-json": "*",
     "guzzlehttp/guzzle": "^7.0.1",
     "nesbot/carbon": "^2.40"

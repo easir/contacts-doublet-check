@@ -1,22 +1,23 @@
-<?php declare(strict_types=1);
+<?php
+declare(strict_types=1);
 
 namespace Easir\ContactsDoubletCheck;
 
 use Carbon\Carbon;
 use Easir\ContactsDoubletCheck\ContactsFilter\B2BContactsFilter;
 use Easir\ContactsDoubletCheck\ContactsFilter\B2CContactsFilter;
+use Easir\ContactsDoubletCheck\ContactsFilter\ContactsFilter;
 use Easir\ContactsDoubletCheck\Exception\ValidationException;
-use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Exception\GuzzleException;
 
-class ContactsDoubletCheck
+final class DefaultContactsDoubletCheck implements ContactDoubletCheck
 {
-    /** @var GuzzleClient */
-    private $client;
+    /** @var RestApiPaginator */
+    private $paginator;
 
-    public function __construct(GuzzleClient $client)
+    public function __construct(RestApiPaginator $paginator)
     {
-        $this->client = $client;
+        $this->paginator = $paginator;
     }
 
     /**
@@ -52,33 +53,11 @@ class ContactsDoubletCheck
     }
 
     /**
-     * @return array|mixed[]
-     * @throws GuzzleException
-     */
-    protected function fetchContacts(ContactsFilter $filter): array
-    {
-        $contacts = [];
-        $numberPages = 0;
-        do {
-            $numberPages++;
-
-            $response = $this->client->post(sprintf('/contacts/filter?per_page=50&page=%d', $numberPages), [
-                'json' => $filter->buildFilter(),
-            ]);
-            $results = json_decode($response->getBody()->getContents(), true);
-
-            $contacts = array_merge($contacts, $results['data']);
-        } while ($results['pagination']['urls']['next'] !== null);
-
-        return $contacts;
-    }
-
-    /**
      * @param array|mixed[] $contacts
      * @return array|mixed[]|null
      * @throws GuzzleException
      */
-    public function getNewestByCase(array $contacts): ?array
+    private function getNewestByCase(array $contacts): ?array
     {
         $contactsWithCases = [];
         foreach ($contacts as $contact) {
@@ -103,35 +82,36 @@ class ContactsDoubletCheck
     /**
      * @throws GuzzleException
      */
-    public function getNewestDateByCase(string $accountId, string $contactId): ?Carbon
+    private function getNewestDateByCase(string $accountId, string $contactId): ?Carbon
     {
-        $newest = null;
-        $numberPages = 0;
-        do {
-            $numberPages++;
+        $newestDate = null;
 
-            $response = $this->client->get(sprintf('/accounts/%s/contacts/%s/cases?per_page=50&page=%d', $accountId, $contactId, $numberPages));
-            $results = json_decode($response->getBody()->getContents(), true);
+        $url = sprintf(
+            '/accounts/%s/contacts/%s/cases',
+            $accountId,
+            $contactId
+        );
+        foreach ($this->paginator->get($url) as $case) {
+            $checkDate = Carbon::parse($case['updated_at']);
+            $newestDate = $checkDate->gt($newestDate) ? $checkDate : $newestDate;
+        }
 
-            if (empty($results['data'])) {
-                return null;
-            }
+        return $newestDate;
+    }
 
-            foreach ($results['data'] as $case) {
-                if (empty($newest)) {
-                    $newest = Carbon::parse($case['updated_at']);
-                }
+    /**
+     * @return array|mixed[]
+     * @throws GuzzleException
+     */
+    private function fetchContacts(ContactsFilter $filter): array
+    {
+        $contacts = [];
 
-                $checkDate = Carbon::parse($case['updated_at']);
-                if (!$newest->lt($checkDate)) {
-                    continue;
-                }
+        foreach ($this->paginator->post('/contacts/filter', $filter->buildFilter()) as $contact) {
+            $contacts[] = $contact;
+        }
 
-                $newest = $checkDate;
-            }
-        } while ($results['pagination']['urls']['next'] !== null);
-
-        return $newest;
+        return $contacts;
     }
 
     /**
@@ -140,12 +120,9 @@ class ContactsDoubletCheck
      */
     private function getNewestByUpdatedAt(array $contacts): array
     {
-        $newest = [];
-        foreach ($contacts as $contact) {
-            if (empty($newest)) {
-                $newest = $contact;
-            }
+        $newest = current($contacts) ? current($contacts) : [];
 
+        foreach ($contacts as $contact) {
             if (!Carbon::parse($newest['updated_at'])->lt(Carbon::parse($contact['updated_at']))) {
                 continue;
             }
