@@ -1,4 +1,5 @@
-<?php declare(strict_types=1);
+<?php
+declare(strict_types=1);
 
 namespace Easir\ContactsDoubletCheck;
 
@@ -7,18 +8,16 @@ use Easir\ContactsDoubletCheck\ContactsFilter\B2BContactsFilter;
 use Easir\ContactsDoubletCheck\ContactsFilter\B2CContactsFilter;
 use Easir\ContactsDoubletCheck\ContactsFilter\ContactsFilter;
 use Easir\ContactsDoubletCheck\Exception\ValidationException;
-use Generator;
-use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Exception\GuzzleException;
 
-final class ContactsDoubletCheck
+final class DefaultContactsDoubletCheck implements ContactDoubletCheck
 {
-    /** @var GuzzleClient */
-    private $client;
+    /** @var RestApiPaginator */
+    private $paginator;
 
-    public function __construct(GuzzleClient $client)
+    public function __construct(RestApiPaginator $paginator)
     {
-        $this->client = $client;
+        $this->paginator = $paginator;
     }
 
     /**
@@ -92,7 +91,7 @@ final class ContactsDoubletCheck
             $accountId,
             $contactId
         );
-        foreach ($this->backendFetcherGet($url) as $case) {
+        foreach ($this->paginator->get($url) as $case) {
             $checkDate = Carbon::parse($case['updated_at']);
             $newestDate = $checkDate->gt($newestDate) ? $checkDate : $newestDate;
         }
@@ -108,7 +107,7 @@ final class ContactsDoubletCheck
     {
         $contacts = [];
 
-        foreach ($this->backendFetcherPost('/contacts/filter', $filter->buildFilter()) as $contact) {
+        foreach ($this->paginator->post('/contacts/filter', $filter->buildFilter()) as $contact) {
             $contacts[] = $contact;
         }
 
@@ -132,45 +131,5 @@ final class ContactsDoubletCheck
         }
 
         return $newest;
-    }
-
-    /**
-     * @param array|mixed[] $payload
-     * @throws GuzzleException
-     */
-    private function backendFetcherGet(string $url): Generator
-    {
-        return $this->backendFetcher('GET', $url);
-    }
-
-    /**
-     * @param array|mixed[] $payload
-     * @throws GuzzleException
-     */
-    private function backendFetcherPost(string $url, array $payload): Generator
-    {
-        return $this->backendFetcher('POST', $url, $payload);
-    }
-
-    /**
-     * @param array|mixed[] $payload
-     * @throws GuzzleException
-     */
-    private function backendFetcher(string $method, string $url, array $payload = []): Generator
-    {
-        $page = 0;
-        do {
-            $page++;
-            $response = $this->client->request(
-                $method,
-                sprintf('%s?page=%d', $url, $page),
-                ['json' => $payload]
-            );
-            $result = json_decode($response->getBody()->getContents(), true);
-
-            foreach ((array) $result['data'] as $record) {
-                yield $record;
-            }
-        } while ($result['pagination']['urls']['next'] !== null);
     }
 }

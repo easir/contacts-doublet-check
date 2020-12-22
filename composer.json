@@ -5,7 +5,11 @@
   "description": "Doublet (double entry search) check of E2C data with EASI'R Now Contacts",
   "autoload": {
     "psr-4": {
-      "Easir\\ContactsDoubletCheck\\": "src/",
+      "Easir\\ContactsDoubletCheck\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
       "Tests\\": "tests/"
     }
   },

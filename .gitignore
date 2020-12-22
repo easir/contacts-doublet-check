@@ -1,5 +1,5 @@
 /vendor
 composer.lock
+composer.phar
 .phpunit.result.cache
 .phpcs-cache
-.idea/

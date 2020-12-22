@@ -3,8 +3,9 @@
 namespace Tests;
 
 use Carbon\Carbon;
-use Easir\ContactsDoubletCheck\ContactsDoubletCheck;
+use Easir\ContactsDoubletCheck\DefaultContactsDoubletCheck;
 use Easir\ContactsDoubletCheck\Exception\ValidationException;
+use Easir\ContactsDoubletCheck\RestApiPaginator;
 use Exception;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
@@ -29,7 +30,7 @@ class ContactsDoubletCheckTest extends TestCase
     ): void {
         $this->expectException(ValidationException::class);
 
-        $contactsDoubletCheck = new ContactsDoubletCheck(new Client());
+        $contactsDoubletCheck = new DefaultContactsDoubletCheck(new RestApiPaginator(new Client()));
         $contactsDoubletCheck->find($firstName, $lastName, $email, $mobile, $landline);
     }
 
@@ -124,7 +125,7 @@ class ContactsDoubletCheckTest extends TestCase
         $stack = HandlerStack::create($guzzleMock);
         $guzzleClient = new Client(['handler' => $stack]);
 
-        $contactsDoubletCheck = new ContactsDoubletCheck($guzzleClient);
+        $contactsDoubletCheck = new DefaultContactsDoubletCheck(new RestApiPaginator($guzzleClient));
         $contact = $contactsDoubletCheck->find(
             'Rachael',
             'Armstrong',
