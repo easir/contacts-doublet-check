@@ -1,6 +1,5 @@
 {
   "name": "easir/contacts-doublet-check",
-  "version": "1.0.1",
   "type": "library",
   "description": "Doublet (double entry search) check of E2C data with EASI'R Now Contacts",
   "autoload": {
