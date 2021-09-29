@@ -10,10 +10,13 @@ final class RestApiPaginator
 {
     /** @var GuzzleClient */
     private $client;
+    /** @var array|null */
+    private $headers;
 
-    public function __construct(GuzzleClient $client)
+    public function __construct(GuzzleClient $client, ?array $headers = null)
     {
         $this->client = $client;
+        $this->headers = $headers;
     }
 
     /**
@@ -40,12 +43,16 @@ final class RestApiPaginator
     private function request(string $method, string $url, array $payload = []): Generator
     {
         $page = 0;
+        $options = ['json' => $payload];
+        if ($this->headers) {
+            $options['headers'] = $this->headers;
+        }
         do {
             $page++;
             $response = $this->client->request(
                 $method,
                 sprintf('%s?page=%d', $url, $page),
-                ['json' => $payload]
+                $options
             );
 
             ['data' => $data, 'pagination' => $pagination] = json_decode((string) $response->getBody(), true);
