@@ -24,9 +24,9 @@ class ContactsDoubletCheckTest extends TestCase
     public function testValidationException(
         string $firstName,
         string $lastName,
-        ?string $email,
-        ?string $mobile,
-        ?string $landline
+        string|null $email,
+        string|null $mobile,
+        string|null $landline
     ): void {
         $this->expectException(ValidationException::class);
 
@@ -59,16 +59,19 @@ class ContactsDoubletCheckTest extends TestCase
     {
         return [
             'No result found' => [
-                $this->prepareDependencies(0, 0, false),
+                $this->prepareDependencies(0, 0, false, false),
             ],
             'One result found' => [
-                $this->prepareDependencies(1, 0, false),
+                $this->prepareDependencies(1, 0, false, false),
+            ],
+            'One result found but zombie' => [
+                $this->prepareDependencies(1, 0, false, true),
             ],
             'More than one result found, no Cases' => [
-                $this->prepareDependencies(3, 2, false),
+                $this->prepareDependencies(2, 2, false, false),
             ],
             'More than one result found, with Cases' => [
-                $this->prepareDependencies(3, 2, true),
+                $this->prepareDependencies(3, 4, true, false),
             ],
         ];
     }
@@ -90,36 +93,40 @@ class ContactsDoubletCheckTest extends TestCase
      * @return array|mixed[]
      * @throws Exception|GuzzleException
      */
-    private function prepareDependencies(int $b2cContacts, int $b2bContacts, bool $withCases): array
-    {
+    private function prepareDependencies(
+        int $privateContactsAmount,
+        int $businessContactsAmount,
+        bool $withCases,
+        bool $zombie,
+    ): array {
         [
-            $newestDateB2C,
-            $realB2CContactDate,
-            $mockedB2CResponse,
-            $mockedB2CCases,
-        ] = $this->populateContacts(true, $b2cContacts, $withCases);
+            $newestDatePrivateContact,
+            $realPrivateContactDate,
+            $mockedPrivateContactResponse,
+            $mockedPrivateContactCases,
+        ] = $this->populateContacts(true, $privateContactsAmount, $withCases, $zombie);
         [
-            $newestDateB2B,
-            $realB2BContactDate,
-            $mockedB2BResponse,
-            $mockedB2BCases,
-        ] = $this->populateContacts(false, $b2bContacts, $withCases);
+            $newestDateBusinessContact,
+            $realBusinessContactDate,
+            $mockedBusinessContactResponse,
+            $mockedBusinessContactCases,
+        ] = $this->populateContacts(false, $businessContactsAmount, $withCases, $zombie);
 
-        if ($newestDateB2C === null) {
-            $realContactDate = $realB2BContactDate;
-        } elseif ($newestDateB2B === null) {
-            $realContactDate = $realB2CContactDate;
-        } elseif ($newestDateB2B->gt($newestDateB2C)) {
-            $realContactDate = $realB2BContactDate;
+        if ($newestDatePrivateContact === null) {
+            $realContactDate = $realBusinessContactDate;
+        } elseif ($newestDateBusinessContact === null) {
+            $realContactDate = $realPrivateContactDate;
+        } elseif ($newestDateBusinessContact->gt($newestDatePrivateContact)) {
+            $realContactDate = $realBusinessContactDate;
         } else {
-            $realContactDate = $realB2CContactDate;
+            $realContactDate = $realPrivateContactDate;
         }
 
         $guzzleMock = new MockHandler(array_merge(
-            $mockedB2CResponse,
-            $mockedB2BResponse,
-            $mockedB2CCases,
-            $mockedB2BCases
+            $mockedPrivateContactResponse,
+            $mockedBusinessContactResponse,
+            $mockedPrivateContactCases,
+            $mockedBusinessContactCases
         ));
 
         $stack = HandlerStack::create($guzzleMock);
@@ -141,7 +148,7 @@ class ContactsDoubletCheckTest extends TestCase
      * @return array|mixed[]
      * @throws Exception
      */
-    private function populateContacts(bool $b2c, int $amount, bool $withCases): array
+    private function populateContacts(bool $b2c, int $amount, bool $withCases, bool $zombie): array
     {
         $newestDate = null;
         $realContactDate = null;
@@ -150,14 +157,18 @@ class ContactsDoubletCheckTest extends TestCase
 
         for ($i = 0; $i < $amount; $i++) {
             $updatedAt = Carbon::now()->subDays(random_int(1, 100))->subHours(random_int(1, 23));
-            $contact = $this->generateContact($b2c, (string) $updatedAt);
+            $contact = $this->generateContact($b2c, (string) $updatedAt, $zombie);
+            if ($zombie) {
+                continue;
+            }
+
             $mockedContacts[] = $contact;
 
             if ($withCases) {
                 [$newestCaseDate, $mockedCases] = $this->populateCases(random_int(0, 3), $contact);
                 $mockedCasesCalls = array_merge($mockedCasesCalls, $mockedCases);
 
-                if ($newestCaseDate !== null && $newestCaseDate->gt($newestDate)) {
+                if ($newestCaseDate !== null && ($newestDate === null || $newestCaseDate->gt($newestDate))) {
                     $newestDate = $newestCaseDate;
                     $realContactDate = $updatedAt;
                 }
@@ -178,7 +189,7 @@ class ContactsDoubletCheckTest extends TestCase
     /**
      * @return array|mixed[]
      */
-    private function generateContact(bool $b2c, string $updatedAt): array
+    private function generateContact(bool $b2c, string $updatedAt, bool $zombie): array
     {
         return [
             'id' => 'c21aff80-af63-3385-a3eb-867b8a7cf5bd',
@@ -207,6 +218,16 @@ class ContactsDoubletCheckTest extends TestCase
                 [
                     'name' => 'landline_phone_number',
                     'value' => '+1-372-862-1467',
+                ],
+            ],
+            'custom_fields' => [
+                [
+                    'name' => 'something',
+                    'value' => 'another',
+                ],
+                [
+                    'name' => 'pks_konflikt',
+                    'value' => $zombie,
                 ],
             ],
             'updated_at' => $updatedAt,

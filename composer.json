@@ -13,16 +13,24 @@
     }
   },
   "require": {
-    "php": "^7.3 || ^8.0",
+    "php": "^8.1",
     "ext-json": "*",
-    "guzzlehttp/guzzle": "^7.0.1",
-    "nesbot/carbon": "^2.40"
+    "guzzlehttp/guzzle": "^7.5",
+    "nesbot/carbon": "^2.64"
   },
   "require-dev": {
     "easir/coding-standard": "@dev",
-    "phpunit/phpunit": "^9.0",
-    "vimeo/psalm": "^3.8",
-    "fzaninotto/faker": "^1.9.1"
+    "phpunit/phpunit": "^9.5",
+    "vimeo/psalm": "^5.3"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "preferred-install": "dist",
+    "sort-packages": true,
+    "platform": {
+      "php": "8.1.0",
+      "ext-json": "8.1.0"
+    }
   },
   "repositories": [
     {
