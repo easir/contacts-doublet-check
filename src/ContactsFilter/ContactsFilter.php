@@ -7,38 +7,21 @@ use OutOfBoundsException;
 
 abstract class ContactsFilter
 {
-    /** @var string */
-    protected $firstName;
-    /** @var string */
-    protected $lastName;
-    /** @var string|null */
-    protected $email;
-    /** @var string|null */
-    protected $mobile;
-    /** @var string|null */
-    protected $landline;
-
     /**
      * @throws ValidationException
      */
     public function __construct(
-        string $firstName,
-        string $lastName,
-        ?string $email,
-        ?string $mobile,
-        ?string $landline
+        protected string $firstName,
+        protected string $lastName,
+        protected string|null $email,
+        protected string|null $mobile,
+        protected string|null $landline
     ) {
-        $this->firstName = $firstName;
-        $this->lastName = $lastName;
-        $this->email = $email;
-        $this->mobile = $mobile;
-        $this->landline = $landline;
-
         $this->validateParameters();
     }
 
     /**
-     * @return array|mixed[]
+     * @return array|array{filter:array<int, array<string, string>>}
      */
     public function buildFilter(): array
     {

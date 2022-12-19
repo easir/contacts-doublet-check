@@ -3,20 +3,18 @@
 namespace Easir\ContactsDoubletCheck;
 
 use Generator;
-use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 
 final class RestApiPaginator
 {
-    /** @var GuzzleClient */
-    private $client;
-    /** @var array|null */
-    private $headers;
-
-    public function __construct(GuzzleClient $client, ?array $headers = null)
-    {
-        $this->client = $client;
-        $this->headers = $headers;
+    /**
+     * @param array|mixed[]|null $headers
+     */
+    public function __construct(
+        private Client $client,
+        private array|null $headers = null
+    ) {
     }
 
     /**
@@ -47,6 +45,7 @@ final class RestApiPaginator
         if ($this->headers) {
             $options['headers'] = $this->headers;
         }
+
         do {
             $page++;
             $response = $this->client->request(

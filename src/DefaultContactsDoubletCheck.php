@@ -12,12 +12,11 @@ use GuzzleHttp\Exception\GuzzleException;
 
 final class DefaultContactsDoubletCheck implements ContactDoubletCheck
 {
-    /** @var RestApiPaginator */
-    private $paginator;
+    private const ZOMBIE = 'pks_konflikt';
 
-    public function __construct(RestApiPaginator $paginator)
-    {
-        $this->paginator = $paginator;
+    public function __construct(
+        private RestApiPaginator $paginator
+    ) {
     }
 
     /**
@@ -27,10 +26,10 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
     public function find(
         string $firstName,
         string $lastName,
-        ?string $email,
-        ?string $mobile,
-        ?string $landline
-    ): ?array {
+        string|null $email,
+        string|null $mobile,
+        string|null $landline
+    ): array|null {
         $contacts = array_merge(
             $this->fetchContacts(new B2CContactsFilter($firstName, $lastName, $email, $mobile, $landline)),
             $this->fetchContacts(new B2BContactsFilter($firstName, $lastName, $email, $mobile, $landline))
@@ -57,7 +56,7 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
      * @return array|mixed[]|null
      * @throws GuzzleException
      */
-    private function getNewestByCase(array $contacts): ?array
+    private function getNewestByCase(array $contacts): array|null
     {
         $contactsWithCases = [];
         foreach ($contacts as $contact) {
@@ -82,7 +81,7 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
     /**
      * @throws GuzzleException
      */
-    private function getNewestDateByCase(string $accountId, string $contactId): ?Carbon
+    private function getNewestDateByCase(string $accountId, string $contactId): Carbon|null
     {
         $newestDate = null;
 
@@ -108,6 +107,10 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
         $contacts = [];
 
         foreach ($this->paginator->post('/contacts/filter', $filter->buildFilter()) as $contact) {
+            if ($this->isZombie($contact['custom_fields'])) {
+                continue;
+            }
+
             $contacts[] = $contact;
         }
 
@@ -120,7 +123,7 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
      */
     private function getNewestByUpdatedAt(array $contacts): array
     {
-        $newest = current($contacts) ? current($contacts) : [];
+        $newest = current($contacts) ?: [];
 
         foreach ($contacts as $contact) {
             if (!Carbon::parse($newest['updated_at'])->lt(Carbon::parse($contact['updated_at']))) {
@@ -131,5 +134,19 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
         }
 
         return $newest;
+    }
+
+    /**
+     * @param array|mixed[] $fields
+     */
+    private function isZombie(array $fields): bool
+    {
+        foreach ($fields as $field) {
+            if ($field['name'] === self::ZOMBIE) {
+                return $field['value'];
+            }
+        }
+
+        return false;
     }
 }

@@ -9,7 +9,7 @@ final class B2CContactsFilter extends ContactsFilter
     use GetFieldNames;
 
     /** @var array|string[] */
-    protected $fields = [
+    protected array $fields = [
         'firstName' => 'b2c_contact.fixed_fields.first_name',
         'lastName' => 'b2c_contact.fixed_fields.last_name',
         'mobile' => 'b2c_contact.fixed_fields.mobile_phone_number',
