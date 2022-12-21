@@ -12,8 +12,8 @@ final class RestApiPaginator
      * @param array|mixed[]|null $headers
      */
     public function __construct(
-        private Client $client,
-        private array|null $headers = null
+        private readonly Client $client,
+        private readonly array|null $headers = null
     ) {
     }
 
@@ -46,14 +46,13 @@ final class RestApiPaginator
             $options['headers'] = $this->headers;
         }
 
+        $check = parse_url($url, PHP_URL_QUERY);
+        $pattern = empty($check) ? '?' : '&';
+
         do {
             $page++;
-            $response = $this->client->request(
-                $method,
-                sprintf('%s?page=%d', $url, $page),
-                $options
-            );
-
+            $url = sprintf('%s%spage=%d', $url, $pattern, $page);
+            $response = $this->client->request($method, $url, $options);
             ['data' => $data, 'pagination' => $pagination] = json_decode((string) $response->getBody(), true);
 
             yield from $data;

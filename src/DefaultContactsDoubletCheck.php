@@ -1,5 +1,4 @@
-<?php
-declare(strict_types=1);
+<?php declare(strict_types=1);
 
 namespace Easir\ContactsDoubletCheck;
 
@@ -9,19 +8,20 @@ use Easir\ContactsDoubletCheck\ContactsFilter\B2CContactsFilter;
 use Easir\ContactsDoubletCheck\ContactsFilter\ContactsFilter;
 use Easir\ContactsDoubletCheck\Exception\ValidationException;
 use GuzzleHttp\Exception\GuzzleException;
+use Throwable;
 
 final class DefaultContactsDoubletCheck implements ContactDoubletCheck
 {
     private const ZOMBIE = 'pks_konflikt';
 
     public function __construct(
-        private RestApiPaginator $paginator
+        private readonly RestApiPaginator $paginator
     ) {
     }
 
     /**
      * @return array|mixed[]|null
-     * @throws GuzzleException|ValidationException
+     * @throws GuzzleException|ValidationException|Throwable
      */
     public function find(
         string $firstName,
@@ -30,10 +30,31 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
         string|null $mobile,
         string|null $landline
     ): array|null {
-        $contacts = array_merge(
-            $this->fetchContacts(new B2CContactsFilter($firstName, $lastName, $email, $mobile, $landline)),
-            $this->fetchContacts(new B2BContactsFilter($firstName, $lastName, $email, $mobile, $landline))
-        );
+        $contacts = [];
+
+        try {
+            $contacts = array_merge(
+                $this->fetchContacts(new B2CContactsFilter($firstName, $lastName, $email, $mobile, $landline)),
+                $this->fetchContacts(new B2BContactsFilter($firstName, $lastName, $email, $mobile, $landline))
+            );
+        } catch (Throwable $exception) {
+            if (in_array($exception->getCode(), [500, 502, 503, 504])) {
+                foreach ($this->buildQueryUrls($firstName, $lastName, $email, $mobile, $landline) as $url) {
+                    foreach ($this->paginator->get($url) as $contact) {
+                        if ($this->isZombie($contact['custom_fields'])) {
+                            continue;
+                        }
+
+                        $contacts[] = $contact;
+                    }
+                    if (!empty($contacts)) {
+                        break;
+                    }
+                }
+            } else {
+                throw $exception;
+            }
+        }
 
         if (empty($contacts)) {
             return null;
@@ -85,14 +106,12 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
     {
         $newestDate = null;
 
-        $url = sprintf(
-            '/accounts/%s/contacts/%s/cases',
-            $accountId,
-            $contactId
-        );
+        $url = sprintf('/accounts/%s/contacts/%s/cases', $accountId, $contactId);
         foreach ($this->paginator->get($url) as $case) {
             $checkDate = Carbon::parse($case['updated_at']);
-            $newestDate = $checkDate->gt($newestDate) ? $checkDate : $newestDate;
+            if ($newestDate === null || $checkDate->gt($newestDate)) {
+                $newestDate = $checkDate;
+            }
         }
 
         return $newestDate;
@@ -148,5 +167,34 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
         }
 
         return false;
+    }
+
+    /**
+     * @return array|string[]
+     */
+    private function buildQueryUrls(
+        string $firstName,
+        string $lastName,
+        string|null $email,
+        string|null $mobile,
+        string|null $landline
+    ): array {
+        $query = '/contacts?q=%s';
+        $queries = [];
+        if ($email !== null) {
+            $queries[] = sprintf($query, $email);
+        }
+
+        $queries[] = sprintf($query, sprintf('%s %s', $firstName, $lastName));
+
+        if ($mobile !== null) {
+            $queries[] = sprintf($query, $mobile);
+        }
+
+        if ($landline !== null) {
+            $queries[] = sprintf($query, $landline);
+        }
+
+        return $queries;
     }
 }
