@@ -12,8 +12,6 @@ use Throwable;
 
 final class DefaultContactsDoubletCheck implements ContactDoubletCheck
 {
-    private const ZOMBIE = 'pks_konflikt';
-
     public function __construct(
         private readonly RestApiPaginator $paginator
     ) {
@@ -28,20 +26,27 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
         string $lastName,
         string|null $email,
         string|null $mobile,
-        string|null $landline
+        string|null $landline,
+        callable|null $qualifier = null,
     ): array|null {
         $contacts = [];
 
         try {
             $contacts = array_merge(
-                $this->fetchContacts(new B2CContactsFilter($firstName, $lastName, $email, $mobile, $landline)),
-                $this->fetchContacts(new B2BContactsFilter($firstName, $lastName, $email, $mobile, $landline))
+                $this->fetchContacts(
+                    new B2CContactsFilter($firstName, $lastName, $email, $mobile, $landline),
+                    $qualifier,
+                ),
+                $this->fetchContacts(
+                    new B2BContactsFilter($firstName, $lastName, $email, $mobile, $landline),
+                    $qualifier,
+                )
             );
         } catch (Throwable $exception) {
             if (in_array($exception->getCode(), [500, 502, 503, 504])) {
                 foreach ($this->buildQueryUrls($firstName, $lastName, $email, $mobile, $landline) as $url) {
                     foreach ($this->paginator->get($url) as $contact) {
-                        if ($this->isZombie($contact['custom_fields'])) {
+                        if ($qualifier !== null && $qualifier($contact)) {
                             continue;
                         }
 
@@ -121,12 +126,12 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
      * @return array|mixed[]
      * @throws GuzzleException
      */
-    private function fetchContacts(ContactsFilter $filter): array
+    private function fetchContacts(ContactsFilter $filter, callable|null $qualifier = null): array
     {
         $contacts = [];
 
         foreach ($this->paginator->post('/contacts/filter', $filter->buildFilter()) as $contact) {
-            if ($this->isZombie($contact['custom_fields'])) {
+            if ($qualifier !== null && $qualifier($contact)) {
                 continue;
             }
 
@@ -153,20 +158,6 @@ final class DefaultContactsDoubletCheck implements ContactDoubletCheck
         }
 
         return $newest;
-    }
-
-    /**
-     * @param array|mixed[] $fields
-     */
-    private function isZombie(array $fields): bool
-    {
-        foreach ($fields as $field) {
-            if ($field['name'] === self::ZOMBIE) {
-                return $field['value'];
-            }
-        }
-
-        return false;
     }
 
     /**

@@ -181,7 +181,8 @@ class ContactsDoubletCheckTest extends TestCase
             'Armstrong',
             'rachael@test.com',
             '932-807-0673',
-            null
+            null,
+            new ZombieQualifier(),
         );
 
         return [$contact, $realContactDate];
