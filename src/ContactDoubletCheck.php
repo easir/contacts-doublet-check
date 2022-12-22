@@ -10,6 +10,7 @@ interface ContactDoubletCheck
         string $lastName,
         string|null $email,
         string|null $mobile,
-        string|null $landline
+        string|null $landline,
+        callable|null $qualifier = null,
     ): array|null;
 }

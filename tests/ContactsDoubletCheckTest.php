@@ -13,6 +13,7 @@ use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
+use Throwable;
 
 class ContactsDoubletCheckTest extends TestCase
 {
@@ -20,6 +21,7 @@ class ContactsDoubletCheckTest extends TestCase
      * @dataProvider generateWrongPayload
      * @throws ValidationException
      * @throws GuzzleException
+     * @throws Throwable
      */
     public function testValidationException(
         string $firstName,
@@ -54,6 +56,7 @@ class ContactsDoubletCheckTest extends TestCase
     /**
      * @return array|mixed[]
      * @throws Exception|GuzzleException
+     * @throws Throwable
      */
     public function generateData(): array
     {
@@ -61,11 +64,17 @@ class ContactsDoubletCheckTest extends TestCase
             'No result found' => [
                 $this->prepareDependencies(0, 0, false, false),
             ],
-            'One result found' => [
+            'One private result found' => [
                 $this->prepareDependencies(1, 0, false, false),
             ],
-            'One result found but zombie' => [
+            'One business result found' => [
+                $this->prepareDependencies(0, 1, false, false),
+            ],
+            'One private result found but zombie' => [
                 $this->prepareDependencies(1, 0, false, true),
+            ],
+            'One business result found but zombie' => [
+                $this->prepareDependencies(0, 1, false, true),
             ],
             'More than one result found, no Cases' => [
                 $this->prepareDependencies(2, 2, false, false),
@@ -92,43 +101,77 @@ class ContactsDoubletCheckTest extends TestCase
     /**
      * @return array|mixed[]
      * @throws Exception|GuzzleException
+     * @throws Throwable
      */
     private function prepareDependencies(
         int $privateContactsAmount,
         int $businessContactsAmount,
         bool $withCases,
         bool $zombie,
+        bool $failsafeHandling = false,
+        string|null $queryType = null,
     ): array {
+        $requiredCalls = [];
+        if ($failsafeHandling) {
+            $requiredCalls[] = $this->mockCall([], 503);
+            if ($queryType === null || $zombie) {
+                $requiredCalls[] = $this->mockCall([]);
+                $requiredCalls[] = $this->mockCall([]);
+                $requiredCalls[] = $this->mockCall([]);
+            } elseif ($queryType === 'name') {
+                $requiredCalls[] = $this->mockCall([]);
+            } elseif ($queryType === 'mobile') {
+                $requiredCalls[] = $this->mockCall([]);
+                $requiredCalls[] = $this->mockCall([]);
+            }
+        }
+
         [
             $newestDatePrivateContact,
             $realPrivateContactDate,
-            $mockedPrivateContactResponse,
-            $mockedPrivateContactCases,
+            $mockedPrivateContacts,
+            $mockedPrivateCasesCalls,
         ] = $this->populateContacts(true, $privateContactsAmount, $withCases, $zombie);
+
         [
             $newestDateBusinessContact,
             $realBusinessContactDate,
-            $mockedBusinessContactResponse,
-            $mockedBusinessContactCases,
+            $mockedBusinessContacts,
+            $mockedBusinessCasesCalls,
         ] = $this->populateContacts(false, $businessContactsAmount, $withCases, $zombie);
 
-        if ($newestDatePrivateContact === null) {
-            $realContactDate = $realBusinessContactDate;
-        } elseif ($newestDateBusinessContact === null) {
-            $realContactDate = $realPrivateContactDate;
-        } elseif ($newestDateBusinessContact->gt($newestDatePrivateContact)) {
+        if ($newestDatePrivateContact !== null && $newestDateBusinessContact !== null) {
+            if ($newestDateBusinessContact->gt($newestDatePrivateContact)) {
+                $realContactDate = $realBusinessContactDate;
+            } else {
+                $realContactDate = $realPrivateContactDate;
+            }
+        } elseif ($newestDatePrivateContact === null) {
             $realContactDate = $realBusinessContactDate;
         } else {
+            $this->assertNull($newestDateBusinessContact);
             $realContactDate = $realPrivateContactDate;
         }
 
-        $guzzleMock = new MockHandler(array_merge(
-            $mockedPrivateContactResponse,
-            $mockedBusinessContactResponse,
-            $mockedPrivateContactCases,
-            $mockedBusinessContactCases
-        ));
+        $mockedContactCalls = [];
+        if ($failsafeHandling) {
+            $mockedContacts = array_merge($mockedPrivateContacts, $mockedBusinessContacts);
+            if (!empty($mockedContacts)) {
+                $mockedContactCalls = [$this->mockCall($mockedContacts)];
+            }
+        } else {
+            $mockedContactCalls[] = $this->mockCall($mockedPrivateContacts);
+            $mockedContactCalls[] = $this->mockCall($mockedBusinessContacts);
+        }
 
+        $mockedCalls = array_merge(
+            $requiredCalls,
+            $mockedContactCalls,
+            $mockedPrivateCasesCalls,
+            $mockedBusinessCasesCalls,
+        );
+
+        $guzzleMock = new MockHandler($mockedCalls);
         $stack = HandlerStack::create($guzzleMock);
         $guzzleClient = new Client(['handler' => $stack]);
 
@@ -138,7 +181,8 @@ class ContactsDoubletCheckTest extends TestCase
             'Armstrong',
             'rachael@test.com',
             '932-807-0673',
-            null
+            null,
+            new ZombieQualifier(),
         );
 
         return [$contact, $realContactDate];
@@ -148,8 +192,12 @@ class ContactsDoubletCheckTest extends TestCase
      * @return array|mixed[]
      * @throws Exception
      */
-    private function populateContacts(bool $b2c, int $amount, bool $withCases, bool $zombie): array
-    {
+    private function populateContacts(
+        bool $b2c,
+        int $amount,
+        bool $withCases,
+        bool $zombie,
+    ): array {
         $newestDate = null;
         $realContactDate = null;
         $mockedContacts = [];
@@ -158,32 +206,40 @@ class ContactsDoubletCheckTest extends TestCase
         for ($i = 0; $i < $amount; $i++) {
             $updatedAt = Carbon::now()->subDays(random_int(1, 100))->subHours(random_int(1, 23));
             $contact = $this->generateContact($b2c, (string) $updatedAt, $zombie);
-            if ($zombie) {
-                continue;
+            if ($newestDate === null || $realContactDate === null) {
+                $realContactDate = $newestDate = $updatedAt;
             }
-
             $mockedContacts[] = $contact;
 
-            if ($withCases) {
-                [$newestCaseDate, $mockedCases] = $this->populateCases(random_int(0, 3), $contact);
-                $mockedCasesCalls = array_merge($mockedCasesCalls, $mockedCases);
-
-                if ($newestCaseDate !== null && ($newestDate === null || $newestCaseDate->gt($newestDate))) {
-                    $newestDate = $newestCaseDate;
-                    $realContactDate = $updatedAt;
-                }
-
-                continue;
-            }
-
-            if ($newestDate === null || $newestDate->lt($updatedAt)) {
+            if ($updatedAt->gt($newestDate)) {
                 $realContactDate = $newestDate = $updatedAt;
             }
 
-            $mockedCasesCalls = array_merge($mockedCasesCalls, [$this->mockCall([])]);
+            if (!$withCases) {
+                $mockedCasesCalls[] = $this->mockCall([]);
+
+                continue;
+            }
+
+            [$newestCaseDate, $mockedCases] = $this->populateCases(random_int(1, 3), $contact);
+            $mockedCasesCalls[] = $this->mockCall($mockedCases);
+
+            if ($newestCaseDate->gt($newestDate)) {
+                $newestDate = $newestCaseDate;
+                $realContactDate = $updatedAt;
+            }
         }
 
-        return [$newestDate, $realContactDate, [$this->mockCall($mockedContacts)], $mockedCasesCalls];
+        if ($zombie) {
+            $newestDate = $realContactDate = null;
+        }
+
+        return [
+            $newestDate,
+            $realContactDate,
+            $mockedContacts,
+            $mockedCasesCalls,
+        ];
     }
 
     /**
@@ -242,7 +298,7 @@ class ContactsDoubletCheckTest extends TestCase
     private function populateCases(int $amount, array $contact): array
     {
         $newestDate = null;
-        $payload = [];
+        $mockedCases = [];
 
         for ($i = 0; $i < $amount; $i++) {
             $updatedAt = Carbon::parse($contact['updated_at'])->addDays(random_int(1, 10))->addHours(random_int(1, 23));
@@ -251,10 +307,10 @@ class ContactsDoubletCheckTest extends TestCase
                 $newestDate = $updatedAt;
             }
 
-            $payload[] = $this->generateCase((string) $updatedAt, $contact);
+            $mockedCases[] = $this->generateCase((string) $updatedAt, $contact);
         }
 
-        return [$newestDate, [$this->mockCall($payload)]];
+        return [$newestDate, $mockedCases];
     }
 
     /**
@@ -276,9 +332,9 @@ class ContactsDoubletCheckTest extends TestCase
     /**
      * @param array|mixed[] $payload
      */
-    private function mockCall(array $payload): Response
+    private function mockCall(array $payload, int $responseCode = 200): Response
     {
-        return new Response(200, [], json_encode([
+        return new Response($responseCode, [], json_encode([
             'data' => $payload,
             'pagination' => [
                 'total' => count($payload),
@@ -290,5 +346,53 @@ class ContactsDoubletCheckTest extends TestCase
                 ],
             ],
         ]));
+    }
+
+    /**
+     * @return array|mixed[]
+     * @throws Exception|GuzzleException
+     * @throws Throwable
+     */
+    public function generateDataForFailsafeHandling(): array
+    {
+        return [
+            'No failsafe result found' => [
+                $this->prepareDependencies(0, 0, false, false, true, null),
+            ],
+            'One private result failsafe found' => [
+                $this->prepareDependencies(1, 0, false, false, true, 'email'),
+            ],
+            'One business result failsafe found' => [
+                $this->prepareDependencies(0, 1, false, false, true, 'email'),
+            ],
+            'One private result failsafe found but zombie' => [
+                $this->prepareDependencies(1, 0, false, true, true, 'name'),
+            ],
+            'One business result failsafe found but zombie' => [
+                $this->prepareDependencies(0, 1, false, true, true, 'name'),
+            ],
+            'More than one result found, no Cases' => [
+                $this->prepareDependencies(2, 3, false, false, true, 'mobile'),
+            ],
+            'More than one result found, with Cases' => [
+                $this->prepareDependencies(3, 4, true, false, true, 'name'),
+            ],
+        ];
+    }
+
+    /**
+     * @dataProvider generateDataForFailsafeHandling
+     */
+    public function testFailsafeHandling(array $payload): void
+    {
+        [$contact, $newestDate] = $payload;
+
+        if ($contact === null) {
+            $this->assertNull($newestDate);
+
+            return;
+        }
+
+        $this->assertSame((string) $newestDate, $contact['updated_at']);
     }
 }
